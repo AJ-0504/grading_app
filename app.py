@@ -215,8 +215,8 @@ def main():
         st.session_state['name'] = None
     if 'username' not in st.session_state:
         st.session_state['username'] = None
-    
-    if st.session_state['authentication_status'] is True:
+
+    if st.session_state['authentication_status']:
         main_app()
     else:
         if st.session_state['page'] == 'login':
@@ -228,10 +228,12 @@ def main():
                 st.session_state['name'] = name
                 st.session_state['authentication_status'] = authentication_status
                 st.session_state['username'] = username
-                
+
+                st.write(f"DEBUG: Name: {name}, Auth Status: {authentication_status}, Username: {username}")
+
                 if authentication_status:
                     st.session_state['page'] = 'main'
-                    st.rerun()
+                    st.experimental_rerun()  # Make sure to use st.experimental_rerun() instead of st.rerun()
                 elif authentication_status is False:
                     st.error('Username/password is incorrect')
                 elif authentication_status is None:
@@ -239,13 +241,14 @@ def main():
             
             if st.button("Need an account? Sign Up"):
                 st.session_state['page'] = 'signup'
-                st.rerun()
+                st.experimental_rerun()
         
         elif st.session_state['page'] == 'signup':
             signup()
             if st.button("Back to Login"):
                 st.session_state['page'] = 'login'
-                st.rerun()
+                st.experimental_rerun()
+
 
 if __name__ == "__main__":
     main()
