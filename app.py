@@ -1,48 +1,67 @@
 import streamlit as st
 import pandas as pd
-import os
+import firebase_admin
+from firebase_admin import credentials, auth, firestore
 from utils import compute_grade_boundaries, validate_boundaries, plot_grade_distribution, clean_data
 import streamlit_authenticator as stauth
 import plotly.express as px
-import hashlib
+import os
+import json
 
 # Global authenticator instance
 authenticator = None
 
-# Load configuration from environment variables
-def load_config():
-    """Load authentication configuration from environment variables."""
+# Initialize Firebase
+def init_firebase():
+    if not firebase_admin._apps:
+        # Load Firebase credentials from a file or environment variable
+        cred_path = 'grading-app-adcb5-firebase-adminsdk-fbsvc-0cd897b47a.json'  # Local testing
+        if 'FIREBASE_CREDENTIALS' in os.environ:
+            cred_dict = json.loads(os.environ['FIREBASE_CREDENTIALS'])
+            cred = credentials.Certificate(cred_dict)
+        else:
+            cred = credentials.Certificate(cred_path)
+        firebase_admin.initialize_app(cred)
+    return firestore.client()
+
+# Load users from Firestore for streamlit-authenticator
+def load_users():
+    db = init_firebase()
+    users_ref = db.collection('users')
+    users = users_ref.get()
+    user_dict = {}
+    for user in users:
+        data = user.to_dict()
+        # Use Firebase UID as key, but map to username for compatibility
+        user_dict[data['username']] = {
+            'email': data['email'],
+            'name': data['name'],
+            'password': data['password']  # Plain text for simplicity; Firebase Auth handles security
+        }
+    # Seed initial users if none exist
+    if not user_dict:
+        initial_users = [
+            {'username': 'user1', 'email': 'user1@example.com', 'name': 'User One', 'password': 'abc123'},
+            {'username': 'user2', 'email': 'user2@example.com', 'name': 'User Two', 'password': 'xyz789'}
+        ]
+        for user in initial_users:
+            users_ref.document(user['username']).set(user)
+            user_dict[user['username']] = user
+    return user_dict
+
+# Initialize authenticator
+def init_authenticator():
+    global authenticator
+    users = load_users()
     config = {
-        'credentials': {
-            'usernames': {
-                'user1': {
-                    'email': os.getenv('USER1_EMAIL', 'user1@example.com'),
-                    'name': os.getenv('USER1_NAME', 'User One'),
-                    'password': os.getenv('USER1_PASSWORD', 'abc123')  # Plain text for simplicity; hash in production
-                },
-                'user2': {
-                    'email': os.getenv('USER2_EMAIL', 'user2@example.com'),
-                    'name': os.getenv('USER2_NAME', 'User Two'),
-                    'password': os.getenv('USER2_PASSWORD', 'xyz789')
-                }
-            }
-        },
+        'credentials': {'usernames': users},
         'cookie': {
             'expiry_days': int(os.getenv('COOKIE_EXPIRY_DAYS', 30)),
             'key': os.getenv('COOKIE_KEY', 'random_key'),
             'name': os.getenv('COOKIE_NAME', 'grading_app_cookie')
         },
-        'preauthorized': {
-            'emails': [os.getenv('PREAUTHORIZED_EMAIL', 'admin@example.com')]
-        }
+        'preauthorized': {'emails': [os.getenv('PREAUTHORIZED_EMAIL', 'admin@example.com')]}
     }
-    return config
-
-# Initialize authenticator
-def init_authenticator():
-    """Set up Streamlit authenticator."""
-    global authenticator
-    config = load_config()
     authenticator = stauth.Authenticate(
         config['credentials'],
         config['cookie']['name'],
@@ -51,17 +70,35 @@ def init_authenticator():
     )
     return authenticator
 
-# Signup function (disabled for deployment; manage users via environment variables)
+# Signup function
 def signup():
     st.subheader("Sign Up")
-    st.warning("Signup is disabled in this deployed version. Contact the admin to add new users.")
-    if st.button("Back to Login"):
-        st.session_state['page'] = 'login'
-        st.rerun()
+    new_username = st.text_input("New Username")
+    new_password = st.text_input("New Password", type="password")
+    new_email = st.text_input("Email")
+    new_name = st.text_input("Full Name")
+
+    if st.button("Register"):
+        db = init_firebase()
+        users_ref = db.collection('users')
+        # Check if username exists
+        if users_ref.document(new_username).get().exists:
+            st.error("Username already exists!")
+        else:
+            # Store user in Firestore (password stored for streamlit-authenticator compatibility)
+            user_data = {
+                'username': new_username,
+                'email': new_email,
+                'name': new_name,
+                'password': new_password  # In production, rely on Firebase Auth instead
+            }
+            users_ref.document(new_username).set(user_data)
+            st.success("Registration successful! Please log in.")
+            st.session_state['page'] = 'login'
+            st.rerun()
 
 # Main app function
 def main_app():
-    """Main grading application interface."""
     st.title("📊 AI-Powered Grade Moderation System")
     st.write(f'Welcome, *{st.session_state["name"]}*!')
     st.sidebar.title("User Options")
@@ -164,7 +201,6 @@ def main_app():
                     st.write("Please assign grades in the 'Grading' tab to see the bar chart.")
 
 def main():
-    """Main function to manage page navigation."""
     global authenticator
     st.set_page_config(page_title="AI-Powered Grading System", layout="wide")
     
