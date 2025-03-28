@@ -5,3 +5,4 @@ plotly
 streamlit-authenticator
 pyyaml
 openpyxl
+firebase-admin
